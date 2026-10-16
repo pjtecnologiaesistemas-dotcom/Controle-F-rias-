@@ -642,20 +642,27 @@ function entrar(u,adm){
  if(adm)admStart();else{admStop();if(S.view=='adm')view('dash')}
 }
 async function semCadastro(u){
+ if(FB.busy)return;FB.busy=true;
  gate(blocoGate('Verificando acesso…',''));
  try{
   const pr=await FS().doc('config/primeiro').get();
-  if(!pr.exists){
+  if(!pr.exists&&FB.tent!==u.uid){
+   FB.tent=u.uid;FB.errAdm='';
    try{
     const b=FS().batch(),em=u.email||'';
     b.set(FS().doc('config/primeiro'),{uid:u.uid,email:em,em:Date.now()});
     b.set(colU().doc(u.uid),{email:em,role:'admin',ativo:true,criadoEm:Date.now()});
     await b.commit();return;
-   }catch(e){}
+   }catch(e){FB.errAdm=(e&&e.code)||'erro'}
+  }
+  if(FB.errAdm){
+   gate(blocoGate('Não foi possível criar o administrador','Código: '+esc(FB.errAdm)+'. O e-mail desta conta é <b>'+esc((u.email||'').toLowerCase())+'</b>. Ele precisa estar IGUAL, em minúsculas e entre aspas simples, nas duas linhas do firestore.rules publicado no Firebase.','sair'));
+   return;
   }
   const ac=await colA().doc(u.uid).get();
   gate(ac.exists?blocoGate('Aguardando liberação','Sua solicitação foi enviada. Quando o administrador liberar, o sistema abre sozinho.','sair'):blocoGate('Acesso não liberado','Toque em Solicitar acesso para avisar o administrador.','pedir'));
  }catch(e){gate(blocoGate('Não foi possível verificar o acesso','Confira a internet e tente novamente.','sair'))}
+ finally{FB.busy=false}
 }
 function acessoStart(u){
  FB.user=u;if(FB.unU)FB.unU();
