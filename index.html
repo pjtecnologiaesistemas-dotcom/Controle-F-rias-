@@ -217,6 +217,16 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 .ur small{display:block;color:var(--mu)}
 .ub{display:flex;gap:8px;flex-wrap:wrap}
 .ub .btn{min-height:40px;padding:6px 12px;font-size:13.5px}
+.ae{padding:12px 0;border-top:1px solid var(--ln);display:grid;gap:4px}
+.ae:first-child{border-top:0}
+.ae small{color:var(--mu)}
+.ah2{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.ah2 b{min-width:0;overflow-wrap:anywhere}
+.ab{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap;background:color-mix(in srgb,var(--pri) 16%,transparent);color:var(--pri)}
+.ab-n{background:var(--okb);color:var(--okf)}.ab-a{background:var(--avb);color:var(--avf)}.ab-x{background:var(--veb);color:var(--vef)}
+.am{margin:4px 0 0;padding-left:18px;font-size:13.5px;display:grid;gap:2px}
+.am s,.av0{color:var(--mu)}
+#aud .dd{flex:1 1 180px}
 #lg .lk{background:none;border:0;color:#00eaff;cursor:pointer;text-decoration:underline;padding:12px 6px;min-height:44px;font-size:14.5px;font-weight:600}
 
 /* caixa de confirmação própria (no celular abre embaixo, botões grandes) */
@@ -253,7 +263,7 @@ th.x{left:0;z-index:3}
   <button class="btn" id="bo" hidden>Sair</button>
  </div>
 </header>
-<nav role="tablist"><button role="tab" data-v="dash" aria-selected="true">Dashboard</button><button role="tab" data-v="list" aria-selected="false">Colaboradores</button><button role="tab" data-v="exp" aria-selected="false">Exportar</button><button role="tab" data-v="adm" id="tab-adm" aria-selected="false" hidden>Administrador</button></nav>
+<nav role="tablist"><button role="tab" data-v="dash" aria-selected="true">Dashboard</button><button role="tab" data-v="list" aria-selected="false">Colaboradores</button><button role="tab" data-v="exp" aria-selected="false">Exportar</button><button role="tab" data-v="adm" id="tab-adm" aria-selected="false" hidden>Administrador</button><button role="tab" data-v="aud" id="tab-aud" aria-selected="false" hidden>Movimentações</button></nav>
 <main>
  <section id="dash"></section>
  <section id="list" hidden>
@@ -266,6 +276,7 @@ th.x{left:0;z-index:3}
  </section>
  <section id="exp" hidden></section>
  <section id="adm" hidden></section>
+ <section id="aud" hidden></section>
 </main>
 <dialog id="md">
  <div class="mh" id="mt"></div>
@@ -399,10 +410,10 @@ function list(){
 }
 
 /* ---------- Navegação e filtros interligados ---------- */
-function view(v){S.view=v;$('#dash').hidden=v!='dash';$('#list').hidden=v!='list';$('#exp').hidden=v!='exp';$('#adm').hidden=v!='adm';document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-selected',b.dataset.v==v));const at=document.querySelector('nav button[aria-selected=true]');if(at&&at.scrollIntoView)at.scrollIntoView({inline:'nearest',block:'nearest'});render()}
+function view(v){S.view=v;$('#dash').hidden=v!='dash';$('#list').hidden=v!='list';$('#exp').hidden=v!='exp';$('#adm').hidden=v!='adm';$('#aud').hidden=v!='aud';document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-selected',b.dataset.v==v));const at=document.querySelector('nav button[aria-selected=true]');if(at&&at.scrollIntoView)at.scrollIntoView({inline:'nearest',block:'nearest'});render()}
 function render(){
  const t=new Date();$('#sub').textContent=`Hoje: ${fd(t)} · ${D.length} colaboradores`;
- S.view=='dash'?dash():S.view=='exp'?exp():S.view=='adm'?adm():list();
+ S.view=='dash'?dash():S.view=='exp'?exp():S.view=='adm'?adm():S.view=='aud'?audView():list();
  const o=(id,a)=>$(id).innerHTML=[...new Set(a)].sort().map(v=>`<option value="${esc(v)}">`).join('');
  o('#dl-turno',D.map(p=>p.turno));o('#dl-cargo',D.map(p=>p.cargo));
 }
@@ -493,8 +504,9 @@ $('#ms').onclick=()=>{
  if(EID&&k<0){$('#er').textContent='Este colaborador foi excluído por outra pessoa. Feche e cadastre de novo, se precisar.';return}
  if(D.some(d=>d.re==p.re&&d.id!==EID)){$('#er').textContent='Já existe um colaborador com este RE.';return}
  if(k>=0){p.re=D[k].re;p.id=D[k].id}else p.id=idDe(p.re);
- const rec=norm(p);
+ const rec=norm(p),antes=k>=0?D[k]:null;
  if(k<0)D.push(rec);else D[k]=rec;
+ if(!antes)audLog('criou',rec,audSnap(rec,'para'));else{const m=audDiff(antes,rec);if(m.length)audLog('alterou',rec,m)}
  salvarLocal();enfileirar('set',rec,k<0);$('#md').close();render();toast(k<0?'Colaborador cadastrado':'Alterações salvas');
 };
 /* ---------- Caixa de confirmação (substitui confirm() do navegador) ---------- */
@@ -519,13 +531,13 @@ async function excluir(i){
  if(!ok)return false;
  const k=D.findIndex(x=>x.id===p.id);
  if(k<0){toast('Colaborador não encontrado');return false}
- const rec=D[k];D.splice(k,1);salvarLocal();enfileirar('del',rec);render();toast('Colaborador excluído');return true;
+ const rec=D[k];D.splice(k,1);salvarLocal();enfileirar('del',rec);audLog('excluiu',rec,audSnap(rec,'de'));render();toast('Colaborador excluído');return true;
 }
 async function restaurarExcluido(lid){
  const x=FB.lix.find(z=>z.lid===lid);if(!x)return;
  const rec=norm({...x,id:x.idOriginal||idDe(x.re)});
  if(D.some(d=>d.id===rec.id||(rec.re&&d.re===rec.re))){toast('Já existe um colaborador com este RE');return}
- D.push(rec);salvarLocal();enfileirar('set',rec,false);render();
+ D.push(rec);salvarLocal();enfileirar('set',rec,false);audLog('restaurou',rec,audSnap(rec,'para'));render();
  try{await colL().doc(lid).delete()}catch(e){}
  toast('Colaborador restaurado');
 }
@@ -629,7 +641,7 @@ function bkRestaurar(file){
   const recs=idsUnicos(a.map(x=>{const r=norm(x);r.id=idDe(r.re);return r})).filter(r=>r.re&&r.nome);
   if(!recs.length){toast('Arquivo de backup inválido');return}
   if(!await askBox('Importar backup','Importar <b>'+recs.length+'</b> colaborador(es) deste backup?<br>Quem já existe (mesmo RE) será atualizado. Os demais cadastros ficam como estão.',{ok:'Importar'}))return;
-  recs.forEach(r=>{const k=D.findIndex(d=>d.id===r.id);if(k<0)D.push(r);else D[k]=r;enfileirar('set',r,false,true)});
+  recs.forEach(r=>{const k=D.findIndex(d=>d.id===r.id),antes=k>=0?D[k]:null;if(k<0)D.push(r);else D[k]=r;enfileirar('set',r,false,true);if(!antes)audLog('importou',r,audSnap(r,'para'));else{const m=audDiff(antes,r);if(m.length)audLog('importou',r,m)}});
   salvarLocal();obSave();fbFlush();render();toast('Backup importado: '+recs.length+' colaboradores');
  };
  r.onerror=()=>toast('Não foi possível ler o arquivo');
@@ -684,6 +696,48 @@ function idDe(re){return 'r_'+encodeURIComponent(S_(re).trim())}
 function norm(r){const o={};KEYS.forEach(k=>o[k]=S_(r[k]).trim());o.id=r.id||idDe(o.re);return o}
 function idsUnicos(a){const v=new Set();return a.map(r=>{const b=r.id||idDe(r.re);let id=b,n=1;while(v.has(id))id=b+'~'+(++n);v.add(id);return {...r,id}})}
 const colC=()=>FS().collection('colaboradores'),colL=()=>FS().collection('lixeira');
+const colAu=()=>FS().collection('auditoria');
+/* ---------- Registro de movimentações (auditoria): fila própria, enviada sem atrapalhar o resto ---------- */
+const AUK='controleFerias.auditoria';
+let AQ=[];try{AQ=JSON.parse(localStorage.getItem(AUK)||'[]')||[]}catch(e){AQ=[]}
+if(!Array.isArray(AQ))AQ=[];
+const audSave=()=>{try{if(AQ.length)localStorage.setItem(AUK,JSON.stringify(AQ));else localStorage.removeItem(AUK)}catch(e){}};
+const AUL={re:'RE',nome:'Nome',adm:'Data Admissão',turno:'Turno',cargo:'Cargo',posto:'Posto',cpf:'CPF',rg:'RG',nasc:'Data Nascimento',ref:'Referência Férias'};
+const acut=v=>S_(v).slice(0,120);
+const audDiff=(a,b)=>KEYS.filter(k=>S_(a&&a[k])!==S_(b&&b[k])).map(k=>({k,c:AUL[k],de:acut(a&&a[k]),para:acut(b&&b[k])}));
+const audSnap=(r,lado)=>KEYS.filter(k=>S_(r[k])).map(k=>({k,c:AUL[k],de:lado=='de'?acut(r[k]):'',para:lado=='para'?acut(r[k]):''}));
+function audLog(acao,rec,mud,alvo){
+ try{
+  const e={id:Date.now().toString(36)+Math.random().toString(36).slice(2,8),acao,por:((FB.user&&FB.user.email)||'').toLowerCase(),em:Date.now()};
+  if(rec){e.re=S_(rec.re).slice(0,60);e.nome=S_(rec.nome).slice(0,200)}
+  if(mud&&mud.length)e.mud=mud;
+  if(alvo)e.alvo=S_(alvo).slice(0,200);
+  AQ.push(e);if(AQ.length>2000)AQ=AQ.slice(-2000);
+  audSave();audFlush();
+ }catch(err){}
+}
+let AF=false;
+async function audFlush(){
+ if(AF||!FB.on||!FB.user||!AQ.length||!navigator.onLine)return;
+ const eu=((FB.user.email)||'').toLowerCase(),meus=AQ.filter(x=>x.por==eu).slice(0,100);
+ if(!meus.length)return;
+ AF=true;let ok=0;const neg=[],feitos=new Set();
+ try{
+  await Promise.all(meus.map(async x=>{
+   const d={acao:x.acao,por:x.por,em:x.em,srv:firebase.firestore.FieldValue.serverTimestamp()};
+   if(x.re!=null)d.re=x.re;if(x.nome!=null)d.nome=x.nome;if(x.mud)d.mud=x.mud;if(x.alvo)d.alvo=x.alvo;
+   try{
+    await Promise.race([colAu().doc(x.id).set(d),new Promise((_,r)=>setTimeout(()=>r({code:'timeout'}),20000))]);
+    feitos.add(x.id);ok++;
+   }catch(e){if(e&&e.code=='permission-denied')neg.push(x.id)}
+  }));
+  /* enviado sai da fila; recusado só é descartado quando outros foram aceitos (regras ativas) */
+  AQ=AQ.filter(x=>!feitos.has(x.id)&&!(ok&&neg.includes(x.id)));
+  audSave();
+ }catch(e){}
+ AF=false;clearTimeout(audFlush.t);
+ if(AQ.some(x=>x.por==eu))audFlush.t=setTimeout(audFlush,ok?800:60000);
+}
 function campos(r){const o={};KEYS.forEach(k=>o[k]=S_(r[k]));o.atualizadoEm=Date.now();o.atualizadoPor=(FB.user&&FB.user.email)||'';return o}
 
 /* op: 'set' (criar/alterar) ou 'del' (excluir, vai para a lixeira). adiar=true não envia agora (uso em lote) */
@@ -782,7 +836,7 @@ async function preparar(sn){
    D.forEach(r=>{const x=c.get(r.id);if(!x||JSON.stringify(x)!==JSON.stringify(r))OB[r.id]={op:'set',rec:r,novo:!x,ts:Date.now()}});
    obSave();try{localStorage.removeItem(LEGK)}catch(e){}
   }
-  FB.ready=true;mesclar(FB.ult||sn);fbFlush();
+  FB.ready=true;mesclar(FB.ult||sn);fbFlush();audFlush();
  }catch(e){tentar=true;cs('☁ Não foi possível conferir a nuvem — tentando de novo')}
  FB.prep=false;
  if(tentar)setTimeout(()=>{if(!FB.ready&&FB.ult)preparar(FB.ult)},8000);
@@ -798,7 +852,7 @@ function fbStart(u){
   preparar(sn);
  },e=>{FB.ready=false;cs('☁ Sem acesso');toast(e&&e.code=='permission-denied'?'Seu usuário não tem permissão para ver os dados':'Falha na sincronização')});
 }
-window.addEventListener('online',()=>{if(!FB.user)return;if(FB.ready)fbFlush();else cs('☁ Reconectando…')});
+window.addEventListener('online',()=>{audFlush();if(!FB.user)return;if(FB.ready)fbFlush();else cs('☁ Reconectando…')});
 window.addEventListener('offline',()=>{if(FB.user)cs('☁ Sem internet — alterações ficam salvas neste aparelho')});
 function loginMostrar(msg){
  let o=$('#lg');
@@ -832,21 +886,21 @@ function loginMostrar(msg){
 const loginOcultar=()=>{const o=$('#lg');if(o)o.hidden=true};
 /* ---------- Acesso: primeiro usuário = administrador; demais precisam ser liberados ---------- */
 const FS=()=>firebase.firestore(),colU=()=>FS().collection('usuarios'),colA=()=>FS().collection('acessos');
-Object.assign(FB,{on:false,role:'',unU:null,unA:[],users:[],pend:[],lix:[],neg:new Set()});
+Object.assign(FB,{on:false,role:'',unU:null,unA:[],users:[],pend:[],lix:[],aud:[],audErr:false,neg:new Set()});
 function gate(h){let o=$('#gt');if(!o){o=document.createElement('div');o.id='gt';document.body.appendChild(o)}o.innerHTML=h;o.hidden=false}
 const gateOff=()=>{const o=$('#gt');if(o)o.hidden=true};
 const blocoGate=(t,x,b)=>`<div class="card">${BRAND}<h2 style="margin:0">${t}</h2><p class="note" style="margin:0">${x}</p>${b=='pedir'?'<button class="btn p" data-gt="pedir" style="justify-content:center">Solicitar acesso</button>':''}${b?'<button class="btn" data-gt="sair" style="justify-content:center">Sair</button>':''}</div>`;
 function sairDados(){
  FB.on=false;FB.ready=false;FB.role='';FB.ult=null;FB.prep=false;clearTimeout(FB.wt);if(FB.un){FB.un();FB.un=null}
- admStop();$('#tab-adm').hidden=true;if(S.view=='adm')view('dash');cs('');
+ admStop();$('#tab-adm').hidden=true;$('#tab-aud').hidden=true;if(S.view=='adm'||S.view=='aud')view('dash');cs('');
 }
 function entrar(u,adm){
  gateOff();loginOcultar();
  FB.role=adm?'admin':'user';
  if(!FB.on){FB.on=true;fbStart(u)}
  if(S.view=='list')list();
- $('#tab-adm').hidden=!adm;
- if(adm)admStart();else{admStop();if(S.view=='adm')view('dash')}
+ $('#tab-adm').hidden=!adm;$('#tab-aud').hidden=!adm;
+ if(adm)admStart();else{admStop();if(S.view=='adm'||S.view=='aud')view('dash')}
 }
 async function semCadastro(u){
  if(FB.busy)return;FB.busy=true;
@@ -885,9 +939,68 @@ function acessoStart(u){
 }
 function admStart(){
  if(FB.unA.length)return;
- FB.unA=[colU().onSnapshot(q=>{FB.users=q.docs.map(d=>({id:d.id,...d.data()}));admRef()},()=>{}),colA().onSnapshot(q=>{FB.pend=q.docs.map(d=>({id:d.id,...d.data()}));admRef()},()=>{}),colL().onSnapshot(q=>{FB.lix=q.docs.map(d=>({lid:d.id,...d.data()}));admRef()},()=>{})];
+ FB.unA=[colU().onSnapshot(q=>{FB.users=q.docs.map(d=>({id:d.id,...d.data()}));admRef()},()=>{}),colA().onSnapshot(q=>{FB.pend=q.docs.map(d=>({id:d.id,...d.data()}));admRef()},()=>{}),colL().onSnapshot(q=>{FB.lix=q.docs.map(d=>({lid:d.id,...d.data()}));admRef()},()=>{}),colAu().orderBy('em','desc').limit(500).onSnapshot(q=>{FB.aud=q.docs.map(d=>({id:d.id,...d.data()}));FB.audErr=false;audRef()},()=>{FB.audErr=true;audRef()})];
 }
-function admStop(){FB.unA.forEach(f=>f());FB.unA=[];FB.users=[];FB.pend=[];FB.lix=[];const t=$('#tab-adm');if(t)t.textContent='Administrador'}
+function admStop(){FB.unA.forEach(f=>f());FB.unA=[];FB.users=[];FB.pend=[];FB.lix=[];FB.aud=[];FB.audErr=false;const t=$('#tab-adm');if(t)t.textContent='Administrador'}
+const AUR={criou:['Novo cadastro','n'],alterou:['Alteração','a'],excluiu:['Exclusão','x'],restaurou:['Restauração','r'],importou:['Importação de backup','i'],'liberou acesso':['Acesso liberado','u'],'recusou acesso':['Acesso recusado','u'],'tornou admin':['Tornou administrador','u'],'removeu admin':['Removeu administrador','u'],'bloqueou acesso':['Acesso bloqueado','u'],'reativou acesso':['Acesso reativado','u']};
+const fdt=t=>t?new Date(t).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+const audVal=(m,v)=>!v?'<i class="av0">vazio</i>':['adm','nasc','ref'].includes(m.k)?esc(fi(v)):(m.k=='cpf'||m.k=='rg')?esc(mask(v,2)):esc(v);
+function audItem(x){
+ const t=AUR[x.acao]||[x.acao,'u'],uni=['criou','restaurou','excluiu'].includes(x.acao);
+ const sub=[x.re?'RE '+esc(x.re):'',esc(x.por||''),fdt(x.em)].filter(Boolean).join(' · ');
+ const mud=(x.mud||[]).map(m=>`<li><b>${esc(m.c)}</b>: ${uni?audVal(m,x.acao=='excluiu'?m.de:m.para):`<s>${audVal(m,m.de)}</s> → ${audVal(m,m.para)}`}</li>`).join('');
+ return `<div class="ae"><div class="ah2"><b>${esc(x.alvo||x.nome||'—')}</b><span class="ab ab-${t[1]}">${esc(t[0])}</span></div><small>${sub}</small>${mud?`<ul class="am">${mud}</ul>`:''}</div>`;
+}
+function audFilt(){
+ const q=nz(S.aq||'').trim();
+ return FB.aud.filter(x=>(!S.aa||(AUR[x.acao]||[x.acao])[0]==S.aa)&&(!S.au||x.por==S.au)&&(!q||nz([x.nome,x.re,x.por,x.alvo].join(' ')).includes(q)));
+}
+const audTxt=(m,v)=>!v?'':['adm','nasc','ref'].includes(m.k)?fi(v):(m.k=='cpf'||m.k=='rg')?mask(v,2):String(v);
+const xs=v=>{v=String(v??'');return /^[=+\-@]/.test(v)?"'"+v:v};
+async function audExport(){
+ const L=audFilt();if(!L.length){toast('Não há registros para exportar');return}
+ const b=$('#ax');
+ try{
+  const dl=(window.claude&&claude.use)?await claude.use('downloads'):null;
+  if(b)b.setAttribute('aria-busy','true');
+  const a=[['Data/Hora','Usuário','Ação','Colaborador / Usuário alvo','RE','Campo','De','Para']];
+  L.forEach(x=>{
+   const t=(AUR[x.acao]||[x.acao])[0],base=[fdt(x.em),x.por||'',t,x.alvo||x.nome||'',x.re||''];
+   if(x.mud&&x.mud.length)x.mud.forEach(m=>a.push([...base,m.c,audTxt(m,m.de),audTxt(m,m.para)]));
+   else a.push([...base,'','','']);
+  });
+  const A=a.map((r,i)=>i?r.map(xs):r),h=new Date(),ext=window.XLSX?'xlsx':'csv',name='movimentacoes_'+h.getFullYear()+'-'+pad(h.getMonth()+1)+'-'+pad(h.getDate())+'.'+ext;
+  let data,mime;
+  if(window.XLSX){
+   const wb=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet(A);
+   ws['!cols']=[18,30,22,34,10,20,28,28].map(w=>({wch:w}));ws['!autofilter']={ref:ws['!ref']};
+   XLSX.utils.book_append_sheet(wb,ws,'Movimentações');data=XLSX.write(wb,{type:'array',bookType:'xlsx'});mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  }else{
+   data='\uFEFF'+A.map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(';')).join('\r\n');mime='text/csv;charset=utf-8';
+  }
+  if(dl)await dl.save({filename:name,data});
+  else{const u=URL.createObjectURL(new Blob([data],{type:mime})),l=document.createElement('a');l.href=u;l.download=name;document.body.appendChild(l);l.click();l.remove();setTimeout(()=>URL.revokeObjectURL(u),1500)}
+  toast(name+' exportado');
+ }catch(e){if(!(e&&e.code=='declined'))toast('Não foi possível exportar')}
+ finally{if(b)b.removeAttribute('aria-busy')}
+}
+function audList(){
+ const L=audFilt();
+ $('#ak').textContent=FB.audErr?'':L.length+' registro(s)';
+ $('#al').innerHTML=FB.audErr?'<div class="em">Sem permissão para ler os registros. Publique as regras novas (firestore.rules) no Firebase.</div>':L.length?L.map(audItem).join(''):'<div class="em">Nenhuma movimentação registrada ainda.</div>';
+}
+function audView(){
+ const el=$('#aud');
+ if(!el.dataset.ok){
+  el.dataset.ok='1';
+  el.innerHTML='<div class="card"><h2>Movimentações</h2><p class="note" style="margin:0 0 12px">Tudo o que foi feito no sistema: quem fez, quando e o que mudou. Os registros não podem ser alterados nem apagados. Mostra os 500 mais recentes.</p><div class="tb"><input id="aq" type="search" placeholder="Buscar por nome, RE ou usuário" aria-label="Buscar nas movimentações"><div class="dd" id="aa"></div><div class="dd" id="au"></div><button class="btn p" id="ax" type="button">↓ Exportar Excel</button></div><div id="ak" class="note" style="margin:0 0 8px"></div><div id="al"></div></div>';
+  $('#aq').value=S.aq||'';$('#aq').oninput=e=>{S.aq=e.target.value;audList()};$('#ax').onclick=audExport;
+ }
+ mkdd('#aa',Object.values(AUR).map(v=>v[0]),'Todas as ações',S.aa||'',v=>{S.aa=v;audView()});
+ mkdd('#au',FB.aud.map(x=>x.por).filter(Boolean),'Todos os usuários',S.au||'',v=>{S.au=v;audView()});
+ audList();
+}
+const audRef=()=>{if(S.view=='aud')audView()};
 function admRef(){const n=FB.pend.length;$('#tab-adm').textContent='Administrador'+(n?' ('+n+')':'');if(S.view=='adm')adm()}
 function adm(){
  const eu=FB.user&&FB.user.uid,dt=t=>t?new Date(t).toLocaleDateString('pt-BR'):'';
@@ -901,12 +1014,12 @@ $('#adm').addEventListener('click',async e=>{
  const id=b.dataset.u,a=b.dataset.ad,x=FB.pend.find(z=>z.id==id)||FB.users.find(z=>z.id==id)||{},em=x.email||'';
  try{
   if(a=='restaurar'){await restaurarExcluido(id)}
-  else if(a=='liberar'){const w=FS().batch();w.set(colU().doc(id),{email:em,role:'user',ativo:true,criadoEm:Date.now(),liberadoPor:FB.user.email||''});w.delete(colA().doc(id));await w.commit();toast('Acesso liberado')}
-  else if(a=='recusar'){if(!await askBox('Recusar solicitação','Recusar o pedido de <b>'+esc(em)+'</b>?',{ok:'Recusar',perigo:true}))return;await colA().doc(id).delete();toast('Solicitação recusada')}
-  else if(a=='admin'){if(!await askBox('Tornar administrador','Dar a <b>'+esc(em)+'</b> a permissão de administrador? Ele poderá liberar acessos e excluir colaboradores.',{ok:'Tornar admin'}))return;await colU().doc(id).update({role:'admin'});toast('Agora é administrador')}
-  else if(a=='tirar'){if(!await askBox('Remover administrador','Remover <b>'+esc(em)+'</b> dos administradores? Ele continua com acesso comum.',{ok:'Remover',perigo:true}))return;await colU().doc(id).update({role:'user'});toast('Administrador removido')}
-  else if(a=='bloquear'){if(!await askBox('Bloquear acesso','<b>'+esc(em)+'</b> não conseguirá mais abrir o sistema.',{ok:'Bloquear',perigo:true}))return;await colU().doc(id).update({ativo:false});toast('Acesso bloqueado')}
-  else if(a=='reativar'){await colU().doc(id).update({ativo:true});toast('Acesso reativado')}
+  else if(a=='liberar'){const w=FS().batch();w.set(colU().doc(id),{email:em,role:'user',ativo:true,criadoEm:Date.now(),liberadoPor:FB.user.email||''});w.delete(colA().doc(id));await w.commit();audLog('liberou acesso',null,null,em);toast('Acesso liberado')}
+  else if(a=='recusar'){if(!await askBox('Recusar solicitação','Recusar o pedido de <b>'+esc(em)+'</b>?',{ok:'Recusar',perigo:true}))return;await colA().doc(id).delete();audLog('recusou acesso',null,null,em);toast('Solicitação recusada')}
+  else if(a=='admin'){if(!await askBox('Tornar administrador','Dar a <b>'+esc(em)+'</b> a permissão de administrador? Ele poderá liberar acessos e excluir colaboradores.',{ok:'Tornar admin'}))return;await colU().doc(id).update({role:'admin'});audLog('tornou admin',null,null,em);toast('Agora é administrador')}
+  else if(a=='tirar'){if(!await askBox('Remover administrador','Remover <b>'+esc(em)+'</b> dos administradores? Ele continua com acesso comum.',{ok:'Remover',perigo:true}))return;await colU().doc(id).update({role:'user'});audLog('removeu admin',null,null,em);toast('Administrador removido')}
+  else if(a=='bloquear'){if(!await askBox('Bloquear acesso','<b>'+esc(em)+'</b> não conseguirá mais abrir o sistema.',{ok:'Bloquear',perigo:true}))return;await colU().doc(id).update({ativo:false});audLog('bloqueou acesso',null,null,em);toast('Acesso bloqueado')}
+  else if(a=='reativar'){await colU().doc(id).update({ativo:true});audLog('reativou acesso',null,null,em);toast('Acesso reativado')}
  }catch(err){toast('Não foi possível concluir a ação')}
 });
 document.addEventListener('click',async e=>{
