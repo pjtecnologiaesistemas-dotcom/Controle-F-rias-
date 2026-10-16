@@ -197,6 +197,25 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 .ub{display:flex;gap:8px;flex-wrap:wrap}
 .ub .btn{min-height:40px;padding:6px 12px;font-size:13.5px}
 #lg .lk{background:none;border:0;color:var(--pri);cursor:pointer;text-decoration:underline;padding:6px;font-size:13.5px}
+
+/* caixa de confirmação própria (no celular abre embaixo, botões grandes) */
+#ask{width:min(420px,calc(100% - 24px));overflow:auto}
+#ask .ah{padding:16px 16px 0;font:700 21px/1.15 var(--fd);text-transform:uppercase;letter-spacing:.03em}
+#ask .ab{padding:10px 16px 16px;overflow-wrap:anywhere;line-height:1.45}
+#ask .af{padding:12px 16px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--ln)}
+#ask .af .btn{min-height:48px;justify-content:center}
+#ask .btn.d{--b:var(--vef);--f:#fff;border-color:transparent}
+@media(max-width:720px){
+ #ask{margin:auto auto calc(12px + env(safe-area-inset-bottom,0px))}
+ #ask .af{flex-direction:column-reverse;padding-bottom:16px}
+ #ask .af .btn{width:100%}
+}
+/* lixeira (somente administrador) */
+th.x,td.x{width:56px;min-width:56px;padding:4px 6px;text-align:center}
+td.x{position:sticky;left:0;background:var(--sf);z-index:1}
+th.x{left:0;z-index:3}
+.lx{background:none;border:1px solid var(--ln);color:var(--vef);border-radius:10px;width:44px;height:44px;display:inline-grid;place-items:center;cursor:pointer;padding:0}
+.lx:hover,.lx:focus-visible{background:var(--veb)}
 @media(prefers-reduced-motion:reduce){.t3d,.btn,.chip,.xb,#toast{transition:none}}
 </style>
 <header>
@@ -229,6 +248,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
  <div class="mf"><span class="er" id="er"></span><button class="btn d" id="mx" hidden>Excluir</button><button class="btn" id="mc">Cancelar</button><button class="btn p" id="ms">Salvar</button></div>
 </dialog>
 <datalist id="dl-turno"></datalist><datalist id="dl-cargo"></datalist><datalist id="dl-posto"></datalist>
+<dialog id="ask" aria-labelledby="ask-t"><div class="ah" id="ask-t"></div><div class="ab" id="ask-m"></div><div class="af"><button class="btn" id="ask-no" type="button">Cancelar</button><button class="btn p" id="ask-ok" type="button">Confirmar</button></div></dialog>
 <div id="toast" role="status"></div>
 <script>
 const SEED=[];
@@ -345,8 +365,9 @@ function list(){
   const nu=u==null||u==='',nv=v==null||v==='';if(nu||nv)return nu&&nv?0:nu?1:-1;
   const c=typeof u=='string'?u.localeCompare(String(v),'pt-BR',{numeric:true}):(u>v)-(u<v);
   return c?c*S.dir:a.nome.localeCompare(b.nome,'pt-BR')});
- $('#th').innerHTML='<tr>'+COLS.map(c=>`<th data-s="${c[0]}" tabindex="0" aria-sort="${S.sort==c[0]?(S.dir>0?'ascending':'descending'):'none'}">${c[1]}${S.sort==c[0]?(S.dir>0?' ▲':' ▼'):''}</th>`).join('')+'</tr>';
- $('#tbd').innerHTML=x.length?x.map(r=>`<tr data-i="${r.i}" tabindex="0">`+CELLS(r).map((v,j)=>`<td data-l="${COLS[j][1]}"${j==10||j==15?' class="n"':''}>${v}</td>`).join('')+'</tr>').join(''):`<tr><td colspan="16" class="em">Nenhum colaborador encontrado. Ajuste os filtros ou cadastre um novo colaborador.</td></tr>`;
+ const ehAdm=FB.role=='admin';
+ $('#th').innerHTML='<tr>'+(ehAdm?'<th class="x" aria-label="Excluir"></th>':'')+COLS.map(c=>`<th data-s="${c[0]}" tabindex="0" aria-sort="${S.sort==c[0]?(S.dir>0?'ascending':'descending'):'none'}">${c[1]}${S.sort==c[0]?(S.dir>0?' ▲':' ▼'):''}</th>`).join('')+'</tr>';
+ $('#tbd').innerHTML=x.length?x.map(r=>`<tr data-i="${r.i}" tabindex="0">`+(ehAdm?`<td class="x" data-l="Excluir"><button type="button" class="lx" data-del="${r.i}" aria-label="Excluir ${esc(r.nome)}">${TRASH}</button></td>`:'')+CELLS(r).map((v,j)=>`<td data-l="${COLS[j][1]}"${j==10||j==15?' class="n"':''}>${v}</td>`).join('')+'</tr>').join(''):`<tr><td colspan="17" class="em">Nenhum colaborador encontrado. Ajuste os filtros ou cadastre um novo colaborador.</td></tr>`;
  $('#ct').textContent=`${x.length} de ${R.length} colaboradores`;
 }
 
@@ -369,6 +390,7 @@ document.addEventListener('click',e=>{
   return;
  }
  const a=e.target.closest('[data-f]');if(a){go(a.dataset.f,a.dataset.v);return}
+ const dl=e.target.closest('[data-del]');if(dl){excluir(+dl.dataset.del);return}
  const i=e.target.closest('[data-i]');if(i){edit(+i.dataset.i);return}
  const th=e.target.closest('th[data-s]');if(th){const k=th.dataset.s;S.dir=S.sort==k?-S.dir:1;S.sort=k;list()}
  const tab=e.target.closest('nav button');if(tab)view(tab.dataset.v);
@@ -418,7 +440,7 @@ $('#mf').oninput=pvw;
 function edit(i){
  EI=i;const p=i<0?{}:D[i];
  KEYS.forEach(k=>$('#f-'+k).value=p[k]||'');
- $('#mt').textContent=i<0?'Novo colaborador':'Editar colaborador';$('#mx').hidden=i<0;$('#er').textContent='';pvw();$('#md').showModal();
+ $('#mt').textContent=i<0?'Novo colaborador':'Editar colaborador';$('#mx').hidden=i<0||FB.role!='admin';$('#er').textContent='';pvw();$('#md').showModal();
 }
 $('#bn').onclick=()=>edit(-1);
 $('#mc').onclick=()=>$('#md').close();
@@ -429,14 +451,38 @@ $('#ms').onclick=()=>{
  if(D.some((d,i)=>d.re==p.re&&i!=EI)){$('#er').textContent='Já existe um colaborador com este RE.';return}
  EI<0?D.push(p):D[EI]=p;save();$('#md').close();render();toast(EI<0?'Colaborador cadastrado':'Alterações salvas');
 };
-/* confirmações dentro da página: o viewer não mostra confirm() */
+/* ---------- Caixa de confirmação (substitui confirm() do navegador) ---------- */
+function askBox(titulo,msg,o){
+ o=o||{};
+ return new Promise(res=>{
+  const d=$('#ask'),ok=$('#ask-ok'),no=$('#ask-no');
+  $('#ask-t').textContent=titulo;$('#ask-m').innerHTML=msg;
+  ok.textContent=o.ok||'Confirmar';no.textContent=o.cancel||'Cancelar';
+  ok.className='btn '+(o.perigo?'d':'p');
+  const fim=()=>{d.removeEventListener('close',fim);ok.onclick=no.onclick=null;res(d.returnValue=='ok')};
+  d.addEventListener('close',fim);
+  ok.onclick=()=>d.close('ok');no.onclick=()=>d.close('no');
+  d.returnValue='no';d.showModal();no.focus();
+ });
+}
+$('#ask').addEventListener('click',e=>{if(e.target===e.currentTarget)e.currentTarget.close('no')});
+const TRASH='<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
+async function excluir(i){
+ const p=D[i];if(!p||FB.role!='admin')return false;
+ const ok=await askBox('Excluir colaborador','Excluir <b>'+esc(p.nome)+'</b> (RE '+esc(p.re)+')?<br>O cadastro será removido de todos os aparelhos e não pode ser desfeito.',{ok:'Excluir',perigo:true});
+ if(!ok)return false;
+ const k=D.findIndex(x=>x.re===p.re&&x.nome===p.nome);
+ if(k<0){toast('Colaborador não encontrado');return false}
+ D.splice(k,1);save();render();toast('Colaborador excluído');return true;
+}
+/* (antigo arm(): não é mais usado) */
 let armed=null;
 function arm(btn,txt,fn){
  if(armed&&armed.b===btn){clearTimeout(armed.t);btn.textContent=armed.o;armed=null;fn();return}
  if(armed){clearTimeout(armed.t);armed.b.textContent=armed.o}
  armed={b:btn,o:btn.textContent,t:setTimeout(()=>{btn.textContent=armed.o;armed=null},4000)};btn.textContent=txt;
 }
-$('#mx').onclick=()=>arm($('#mx'),'Toque de novo para excluir',()=>{D.splice(EI,1);save();$('#md').close();render();toast('Colaborador excluído')});
+$('#mx').onclick=async()=>{if(await excluir(EI))$('#md').close()};
 
 /* ---------- Exportar, restaurar, preferências ---------- */
 /* ---------- Aba Exportar (PDF, Excel, CSV) ---------- */
@@ -527,13 +573,14 @@ async function bkFazer(){
 }
 function bkRestaurar(file){
  const r=new FileReader();
- r.onload=()=>{
+ r.onload=async()=>{
+  let a;
   try{
-   const j=JSON.parse(r.result),a=Array.isArray(j)?j:j.colaboradores;
+   const j=JSON.parse(r.result);a=Array.isArray(j)?j:j.colaboradores;
    if(!Array.isArray(a)||!a.length||!a.every(x=>x&&typeof x=='object'&&'nome'in x&&'ref'in x))throw 0;
-   if(!confirm('Restaurar '+a.length+' colaborador(es) deste backup? Os dados atuais serão substituídos.'))return;
-   D=a.map(x=>Object.fromEntries(KEYS.map(k=>[k,x[k]==null?'':x[k]])));save();render();toast('Backup restaurado: '+D.length+' colaboradores')
-  }catch(e){toast('Arquivo de backup inválido')}
+  }catch(e){toast('Arquivo de backup inválido');return}
+  if(!await askBox('Restaurar backup','Substituir os dados atuais por <b>'+a.length+'</b> colaborador(es) deste backup?',{ok:'Restaurar',perigo:true}))return;
+  D=a.map(x=>Object.fromEntries(KEYS.map(k=>[k,x[k]==null?'':x[k]])));save();render();toast('Backup restaurado: '+D.length+' colaboradores');
  };
  r.onerror=()=>toast('Não foi possível ler o arquivo');
  r.readAsText(file);
@@ -563,7 +610,7 @@ $('#exp').addEventListener('click',e=>{
  if(e.target.closest('#em')){$('#bm').click();return}
  const x=e.target.closest('.xb');if(x)doExport(x.dataset.x);
 });
-$('#br').onclick=()=>arm($('#br'),'Toque de novo para restaurar',()=>{D=SEED.map(mk);save();render();toast('Planilha original restaurada')});
+$('#br').onclick=async()=>{if(await askBox('Restaurar planilha','Voltar aos dados originais da planilha? As alterações feitas serão perdidas.',{ok:'Restaurar',perigo:true})){D=SEED.map(mk);save();render();toast('Planilha original restaurada')}};
 $('#bm').onclick=()=>{S.mask=!S.mask;$('#bm').setAttribute('aria-pressed',S.mask);$('#bm').textContent=S.mask?'Mostrar CPF/RG':'Ocultar CPF/RG';pref();render()};
 $('#bt').onclick=()=>{const d=document.documentElement,dark=d.dataset.theme?d.dataset.theme=='dark':matchMedia('(prefers-color-scheme:dark)').matches;d.dataset.theme=dark?'light':'dark';pref()};
 try{const p=JSON.parse(localStorage.getItem(PREF)||'{}');if(p.theme)document.documentElement.dataset.theme=p.theme;if(p.mask){S.mask=true;$('#bm').setAttribute('aria-pressed','true');$('#bm').textContent='Mostrar CPF/RG'}}catch(e){}
@@ -652,13 +699,13 @@ function gate(h){let o=$('#gt');if(!o){o=document.createElement('div');o.id='gt'
 const gateOff=()=>{const o=$('#gt');if(o)o.hidden=true};
 const blocoGate=(t,x,b)=>`<div class="card"><h2 style="margin:0">${t}</h2><p class="note" style="margin:0">${x}</p>${b=='pedir'?'<button class="btn p" data-gt="pedir" style="justify-content:center">Solicitar acesso</button>':''}${b?'<button class="btn" data-gt="sair" style="justify-content:center">Sair</button>':''}</div>`;
 function sairDados(){
- FB.on=false;FB.ready=false;if(FB.un){FB.un();FB.un=null}
+ FB.on=false;FB.ready=false;FB.role='';if(FB.un){FB.un();FB.un=null}
  admStop();$('#tab-adm').hidden=true;if(S.view=='adm')view('dash');cs('');
 }
 function entrar(u,adm){
  gateOff();loginOcultar();
  if(!FB.on){FB.on=true;fbStart(u)}
- FB.role=adm?'admin':'user';
+ FB.role=adm?'admin':'user';if(S.view=='list')list();
  $('#tab-adm').hidden=!adm;
  if(adm)admStart();else{admStop();if(S.view=='adm')view('dash')}
 }
@@ -714,10 +761,10 @@ $('#adm').addEventListener('click',async e=>{
  const id=b.dataset.u,a=b.dataset.ad,x=FB.pend.find(z=>z.id==id)||FB.users.find(z=>z.id==id)||{},em=x.email||'';
  try{
   if(a=='liberar'){const w=FS().batch();w.set(colU().doc(id),{email:em,role:'user',ativo:true,criadoEm:Date.now(),liberadoPor:FB.user.email||''});w.delete(colA().doc(id));await w.commit();toast('Acesso liberado')}
-  else if(a=='recusar'){if(!confirm('Recusar a solicitação de '+em+'?'))return;await colA().doc(id).delete();toast('Solicitação recusada')}
-  else if(a=='admin'){if(!confirm('Tornar '+em+' administrador?'))return;await colU().doc(id).update({role:'admin'});toast('Agora é administrador')}
-  else if(a=='tirar'){if(!confirm('Remover '+em+' dos administradores?'))return;await colU().doc(id).update({role:'user'});toast('Administrador removido')}
-  else if(a=='bloquear'){if(!confirm('Bloquear o acesso de '+em+'?'))return;await colU().doc(id).update({ativo:false});toast('Acesso bloqueado')}
+  else if(a=='recusar'){if(!await askBox('Recusar solicitação','Recusar o pedido de <b>'+esc(em)+'</b>?',{ok:'Recusar',perigo:true}))return;await colA().doc(id).delete();toast('Solicitação recusada')}
+  else if(a=='admin'){if(!await askBox('Tornar administrador','Dar a <b>'+esc(em)+'</b> a permissão de administrador? Ele poderá liberar acessos e excluir colaboradores.',{ok:'Tornar admin'}))return;await colU().doc(id).update({role:'admin'});toast('Agora é administrador')}
+  else if(a=='tirar'){if(!await askBox('Remover administrador','Remover <b>'+esc(em)+'</b> dos administradores? Ele continua com acesso comum.',{ok:'Remover',perigo:true}))return;await colU().doc(id).update({role:'user'});toast('Administrador removido')}
+  else if(a=='bloquear'){if(!await askBox('Bloquear acesso','<b>'+esc(em)+'</b> não conseguirá mais abrir o sistema.',{ok:'Bloquear',perigo:true}))return;await colU().doc(id).update({ativo:false});toast('Acesso bloqueado')}
   else if(a=='reativar'){await colU().doc(id).update({ativo:true});toast('Acesso reativado')}
  }catch(err){toast('Não foi possível concluir a ação')}
 });
@@ -741,7 +788,7 @@ async function fbInit(){
  }catch(e){loginMostrar('Não foi possível carregar o Firebase. Verifique a internet.')}
 }
 $('#bo').onclick=async()=>{
- if(pend()&&!confirm('Há alterações que ainda NÃO foram enviadas para a nuvem. Se sair agora, elas serão perdidas. Sair mesmo assim?'))return;
+ if(pend()&&!await askBox('Sair sem enviar?','Há alterações que ainda <b>não foram enviadas</b> para a nuvem. Se sair agora, elas serão perdidas.',{ok:'Sair mesmo assim',perigo:true,cancel:'Voltar'}))return;
  try{await firebase.auth().signOut()}catch(e){}
  try{localStorage.removeItem(KEY)}catch(e){}setPend(false);
  D=SEED.map(mk);render();
