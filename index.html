@@ -224,7 +224,6 @@ th.x{left:0;z-index:3}
   <button class="btn p" id="bn">+ Novo colaborador</button>
   <button class="btn" id="bm" aria-pressed="false">Ocultar CPF/RG</button>
   <button class="btn" id="bt" aria-label="Alternar tema">Tema</button>
-  <button class="btn" id="br">Restaurar planilha</button>
   <button class="btn" id="bo" hidden>Sair</button>
  </div>
 </header>
@@ -257,12 +256,13 @@ const KEYS=['re','nome','adm','turno','cargo','posto','cpf','rg','nasc','ref'];
 const COLS=[['re','RE'],['nome','Nome'],['adm','Data Admissão'],['turno','Turno'],['cargo','Cargo'],['posto','Posto'],['cpf','CPF'],['rg','RG'],['nasc','Data Nascimento'],['ref','REFERÊNCIA FÉRIA'],['k','Dias Trabalhados'],['l','Início Período Aquisitivo'],['m','Fim Período Aquisitivo'],['st','Status Férias'],['v','Vence em'],['dr','Dias p/ vencer']];
 const FORM=[['re','RE','text'],['nome','Nome','text','w'],['adm','Data Admissão','date'],['turno','Turno','text'],['cargo','Cargo','text'],['posto','Posto','text','w'],['cpf','CPF','text'],['rg','RG','text'],['nasc','Data Nascimento','date'],['ref','Referência Férias','date']];
 const CL={'OK':'OK','A Vencer':'AV','Vencido':'VE'},STS=['OK','A Vencer','Vencido'];
-let D,S={view:'dash',q:'',st:'',posto:'',turno:'',cargo:'',sort:'nome',dir:1,mask:false},EI=-1;
+let D,S={view:'dash',q:'',st:'',posto:'',turno:'',cargo:'',sort:'nome',dir:1,mask:false},EI=-1,EID=null;
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const mk=a=>Object.fromEntries(KEYS.map((k,i)=>[k,a[i]]));
-function load(){try{const j=localStorage.getItem(KEY);if(j){D=JSON.parse(j);return}}catch(e){}D=SEED.map(mk)}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(D))}catch(e){toast('Atenção: não foi possível salvar neste aparelho')}if(typeof fbPush=='function')fbPush(true)}
+function load(){try{const j=localStorage.getItem(KEY);if(j){const a=JSON.parse(j);if(Array.isArray(a)){D=idsUnicos(a.map(norm));return}}}catch(e){}D=idsUnicos(SEED.map(mk).map(norm))}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(D))}catch(e){toast('Atenção: não foi possível salvar neste aparelho')}}
+const salvarLocal=save;
 function pref(){try{localStorage.setItem(PREF,JSON.stringify({mask:S.mask,theme:document.documentElement.dataset.theme||''}))}catch(e){}}
 const P=iso=>{const a=(iso||'').split('-');return a.length==3?new Date(+a[0],a[1]-1,+a[2]):null};
 const fd=d=>d?String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear():'';
@@ -438,8 +438,9 @@ function pvw(){
 }
 $('#mf').oninput=pvw;
 function edit(i){
- EI=i;const p=i<0?{}:D[i];
+ EI=i;EID=i<0?null:((D[i]&&D[i].id)||null);const p=i<0?{}:(D[i]||{});
  KEYS.forEach(k=>$('#f-'+k).value=p[k]||'');
+ $('#f-re').disabled=i>=0;$('#f-re').title=i>=0?'O RE não pode ser alterado. Para corrigir, o administrador exclui e cadastra de novo.':'';
  $('#mt').textContent=i<0?'Novo colaborador':'Editar colaborador';$('#mx').hidden=i<0||FB.role!='admin';$('#er').textContent='';pvw();$('#md').showModal();
 }
 $('#bn').onclick=()=>edit(-1);
@@ -448,8 +449,13 @@ $('#ms').onclick=()=>{
  const p={};KEYS.forEach(k=>p[k]=$('#f-'+k).value.trim());
  ['nome','turno','cargo','posto'].forEach(k=>p[k]=p[k].toUpperCase());
  if(!p.re||!p.nome||!p.ref){$('#er').textContent='Preencha RE, Nome e Referência Férias.';return}
- if(D.some((d,i)=>d.re==p.re&&i!=EI)){$('#er').textContent='Já existe um colaborador com este RE.';return}
- EI<0?D.push(p):D[EI]=p;save();$('#md').close();render();toast(EI<0?'Colaborador cadastrado':'Alterações salvas');
+ const k=EID?D.findIndex(d=>d.id===EID):-1;
+ if(EID&&k<0){$('#er').textContent='Este colaborador foi excluído por outra pessoa. Feche e cadastre de novo, se precisar.';return}
+ if(D.some(d=>d.re==p.re&&d.id!==EID)){$('#er').textContent='Já existe um colaborador com este RE.';return}
+ if(k>=0){p.re=D[k].re;p.id=D[k].id}else p.id=idDe(p.re);
+ const rec=norm(p);
+ if(k<0)D.push(rec);else D[k]=rec;
+ salvarLocal();enfileirar('set',rec,k<0);$('#md').close();render();toast(k<0?'Colaborador cadastrado':'Alterações salvas');
 };
 /* ---------- Caixa de confirmação (substitui confirm() do navegador) ---------- */
 function askBox(titulo,msg,o){
@@ -469,18 +475,19 @@ $('#ask').addEventListener('click',e=>{if(e.target===e.currentTarget)e.currentTa
 const TRASH='<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
 async function excluir(i){
  const p=D[i];if(!p||FB.role!='admin')return false;
- const ok=await askBox('Excluir colaborador','Excluir <b>'+esc(p.nome)+'</b> (RE '+esc(p.re)+')?<br>O cadastro será removido de todos os aparelhos e não pode ser desfeito.',{ok:'Excluir',perigo:true});
+ const ok=await askBox('Excluir colaborador','Excluir <b>'+esc(p.nome)+'</b> (RE '+esc(p.re)+')?<br>O cadastro sai da lista em todos os aparelhos e fica guardado em “Excluídos recentemente”, na aba Administrador, para ser restaurado se for preciso.',{ok:'Excluir',perigo:true});
  if(!ok)return false;
- const k=D.findIndex(x=>x.re===p.re&&x.nome===p.nome);
+ const k=D.findIndex(x=>x.id===p.id);
  if(k<0){toast('Colaborador não encontrado');return false}
- D.splice(k,1);save();render();toast('Colaborador excluído');return true;
+ const rec=D[k];D.splice(k,1);salvarLocal();enfileirar('del',rec);render();toast('Colaborador excluído');return true;
 }
-/* (antigo arm(): não é mais usado) */
-let armed=null;
-function arm(btn,txt,fn){
- if(armed&&armed.b===btn){clearTimeout(armed.t);btn.textContent=armed.o;armed=null;fn();return}
- if(armed){clearTimeout(armed.t);armed.b.textContent=armed.o}
- armed={b:btn,o:btn.textContent,t:setTimeout(()=>{btn.textContent=armed.o;armed=null},4000)};btn.textContent=txt;
+async function restaurarExcluido(lid){
+ const x=FB.lix.find(z=>z.lid===lid);if(!x)return;
+ const rec=norm({...x,id:x.idOriginal||idDe(x.re)});
+ if(D.some(d=>d.id===rec.id||(rec.re&&d.re===rec.re))){toast('Já existe um colaborador com este RE');return}
+ D.push(rec);salvarLocal();enfileirar('set',rec,false);render();
+ try{await colL().doc(lid).delete()}catch(e){}
+ toast('Colaborador restaurado');
 }
 $('#mx').onclick=async()=>{if(await excluir(EI))$('#md').close()};
 
@@ -579,8 +586,11 @@ function bkRestaurar(file){
    const j=JSON.parse(r.result);a=Array.isArray(j)?j:j.colaboradores;
    if(!Array.isArray(a)||!a.length||!a.every(x=>x&&typeof x=='object'&&'nome'in x&&'ref'in x))throw 0;
   }catch(e){toast('Arquivo de backup inválido');return}
-  if(!await askBox('Restaurar backup','Substituir os dados atuais por <b>'+a.length+'</b> colaborador(es) deste backup?',{ok:'Restaurar',perigo:true}))return;
-  D=a.map(x=>Object.fromEntries(KEYS.map(k=>[k,x[k]==null?'':x[k]])));save();render();toast('Backup restaurado: '+D.length+' colaboradores');
+  const recs=idsUnicos(a.map(x=>{const r=norm(x);r.id=idDe(r.re);return r})).filter(r=>r.re&&r.nome);
+  if(!recs.length){toast('Arquivo de backup inválido');return}
+  if(!await askBox('Importar backup','Importar <b>'+recs.length+'</b> colaborador(es) deste backup?<br>Quem já existe (mesmo RE) será atualizado. Os demais cadastros ficam como estão.',{ok:'Importar'}))return;
+  recs.forEach(r=>{const k=D.findIndex(d=>d.id===r.id);if(k<0)D.push(r);else D[k]=r;enfileirar('set',r,false,true)});
+  salvarLocal();obSave();fbFlush();render();toast('Backup importado: '+recs.length+' colaboradores');
  };
  r.onerror=()=>toast('Não foi possível ler o arquivo');
  r.readAsText(file);
@@ -610,7 +620,6 @@ $('#exp').addEventListener('click',e=>{
  if(e.target.closest('#em')){$('#bm').click();return}
  const x=e.target.closest('.xb');if(x)doExport(x.dataset.x);
 });
-$('#br').onclick=async()=>{if(await askBox('Restaurar planilha','Voltar aos dados originais da planilha? As alterações feitas serão perdidas.',{ok:'Restaurar',perigo:true})){D=SEED.map(mk);save();render();toast('Planilha original restaurada')}};
 $('#bm').onclick=()=>{S.mask=!S.mask;$('#bm').setAttribute('aria-pressed',S.mask);$('#bm').textContent=S.mask?'Mostrar CPF/RG':'Ocultar CPF/RG';pref();render()};
 $('#bt').onclick=()=>{const d=document.documentElement,dark=d.dataset.theme?d.dataset.theme=='dark':matchMedia('(prefers-color-scheme:dark)').matches;d.dataset.theme=dark?'light':'dark';pref()};
 try{const p=JSON.parse(localStorage.getItem(PREF)||'{}');if(p.theme)document.documentElement.dataset.theme=p.theme;if(p.mask){S.mask=true;$('#bm').setAttribute('aria-pressed','true');$('#bm').textContent='Mostrar CPF/RG'}}catch(e){}
@@ -622,45 +631,133 @@ const FB={ready:false,user:null,ref:null,un:null,t:0};
 const cs=t=>{const e=$('#cs');if(e)e.textContent=t};
 const lerScript=u=>new Promise((ok,no)=>{const e=document.createElement('script');e.src=u;e.onload=ok;e.onerror=()=>no(new Error('script'));document.head.appendChild(e)});
 const ERR={'auth/invalid-credential':'E-mail ou senha incorretos.','auth/wrong-password':'E-mail ou senha incorretos.','auth/user-not-found':'E-mail ou senha incorretos.','auth/invalid-email':'E-mail inválido.','auth/user-disabled':'Usuário desativado.','auth/too-many-requests':'Muitas tentativas. Aguarde um pouco.','auth/email-already-in-use':'Este e-mail já tem conta. Toque em Entrar.','auth/weak-password':'Senha fraca: use pelo menos 6 caracteres.','auth/network-request-failed':'Sem conexão com a internet.','auth/operation-not-supported-in-this-environment':'Abra o sistema pelo endereço https hospedado.'};
-const DK='controleFerias.pendente';
-const pend=()=>{try{return localStorage.getItem(DK)==='1'}catch(e){return false}};
-const setPend=v=>{try{if(v)localStorage.setItem(DK,'1');else localStorage.removeItem(DK)}catch(e){}};
-function fbPush(mudou){
- if(!FB_ON)return;
- if(mudou){FB.v=(FB.v||0)+1;setPend(true)}
- if(!FB.ready||!FB.user||!D.length){if(mudou&&FB.user)cs('☁ Salvo neste aparelho — envia quando a conexão voltar');return}
- clearTimeout(FB.t);
- const v=FB.v||0;
- FB.t=setTimeout(async()=>{
-  FB.busy=true;
-  try{
-   cs(navigator.onLine?'☁ Salvando…':'☁ Sem internet — salvo neste aparelho, envia quando voltar');
-   await FB.ref.set({colaboradores:JSON.parse(JSON.stringify(D)),atualizado:Date.now(),por:FB.user.email||''});
-   if(v===(FB.v||0))setPend(false);
-   cs('☁ Sincronizado');
-  }catch(e){cs('☁ Não enviado (sem conexão ou permissão) — salvo neste aparelho');toast('Não foi possível sincronizar agora')}
-  FB.busy=false;
- },600);
+/* ---------- Dados: um registro por colaborador na nuvem + fila de envio guardada no aparelho ---------- */
+const OBK='controleFerias.fila',LEGK='controleFerias.pendente';
+let OB={};
+try{OB=JSON.parse(localStorage.getItem(OBK)||'{}')||{}}catch(e){OB={}}
+const obSave=()=>{try{if(Object.keys(OB).length)localStorage.setItem(OBK,JSON.stringify(OB));else localStorage.removeItem(OBK)}catch(e){toast('Atenção: não foi possível guardar a fila de envio neste aparelho')}};
+const nPend=()=>Object.keys(OB).length;
+const legPend=()=>{try{return localStorage.getItem(LEGK)==='1'}catch(e){return false}};
+const S_=v=>v==null?'':String(v);
+function idDe(re){return 'r_'+encodeURIComponent(S_(re).trim())}
+function norm(r){const o={};KEYS.forEach(k=>o[k]=S_(r[k]).trim());o.id=r.id||idDe(o.re);return o}
+function idsUnicos(a){const v=new Set();return a.map(r=>{const b=r.id||idDe(r.re);let id=b,n=1;while(v.has(id))id=b+'~'+(++n);v.add(id);return {...r,id}})}
+const colC=()=>FS().collection('colaboradores'),colL=()=>FS().collection('lixeira');
+function campos(r){const o={};KEYS.forEach(k=>o[k]=S_(r[k]));o.atualizadoEm=Date.now();o.atualizadoPor=(FB.user&&FB.user.email)||'';return o}
+
+/* op: 'set' (criar/alterar) ou 'del' (excluir, vai para a lixeira). adiar=true não envia agora (uso em lote) */
+function enfileirar(op,rec,novo,adiar){
+ const a=OB[rec.id],r=norm(rec);
+ if(op=='del'){
+  if(a&&a.op=='set'&&a.novo)delete OB[rec.id];
+  else OB[rec.id]={op:'del',rec:r,ts:Date.now()};
+ }else{
+  OB[rec.id]={op:'set',rec:r,novo:!!((novo&&!(a&&a.op=='del'))||(a&&a.op=='set'&&a.novo)),ts:Date.now()};
+ }
+ if(!adiar){obSave();fbFlush()}
+}
+async function enviar(id,o){
+ const db=FS(),ref=colC().doc(id);
+ if(o.op=='del'){
+  const b=db.batch();
+  b.delete(ref);
+  b.set(colL().doc(id+'~'+o.ts),{...campos(o.rec),excluidoEm:o.ts,excluidoPor:(FB.user&&FB.user.email)||'',idOriginal:id});
+  await b.commit();return;
+ }
+ if(o.novo){
+  await db.runTransaction(async t=>{const sn=await t.get(ref);if(sn.exists){const e=new Error('ja-existe');e.code='ja-existe';throw e}t.set(ref,campos(o.rec))});
+  return;
+ }
+ await ref.set(campos(o.rec));
+}
+async function fbFlush(){
+ if(FB.fl||!FB.ready||!FB.user)return;
+ const livres=()=>Object.keys(OB).filter(i=>!FB.neg.has(i));
+ if(!livres().length){cs(nPend()?'☁ '+nPend()+' alteração(ões) recusada(s) pelo servidor':'☁ Sincronizado');return}
+ FB.fl=true;let falhou=false;
+ cs(navigator.onLine?'☁ Enviando '+livres().length+' alteração(ões)…':'☁ Sem internet — '+livres().length+' alteração(ões) aguardando envio');
+ try{
+  for(;;){
+   const ids=livres();if(!ids.length)break;
+   const simples=ids.filter(i=>OB[i].op=='set'&&!OB[i].novo).slice(0,300);
+   if(simples.length>1&&!FB.semLote){
+    const snap=simples.map(i=>[i,OB[i]]);
+    try{
+     const b=FS().batch();snap.forEach(([i,o])=>b.set(colC().doc(i),campos(o.rec)));await b.commit();
+     snap.forEach(([i,o])=>{if(OB[i]===o)delete OB[i]});obSave();continue;
+    }catch(e){if(!(e&&e.code=='permission-denied'))throw e;FB.semLote=true}
+   }
+   const id=ids[0],o=OB[id];
+   try{await enviar(id,o);if(OB[id]===o){delete OB[id];obSave()}}
+   catch(e){
+    if(e&&e.code=='ja-existe'){if(OB[id]===o){delete OB[id];obSave()}toast('O RE '+o.rec.re+' já existe na nuvem. O cadastro novo não foi gravado.')}
+    else if(e&&e.code=='permission-denied'){FB.neg.add(id);toast('O servidor recusou a alteração de '+(o.rec.nome||o.rec.re)+'. Ela continua salva neste aparelho.')}
+    else throw e;
+   }
+  }
+ }catch(e){falhou=true}
+ FB.fl=false;
+ if(falhou){cs('☁ Não enviado — '+nPend()+' alteração(ões) salva(s) neste aparelho');clearTimeout(FB.rt);FB.rt=setTimeout(fbFlush,15000);return}
+ if(livres().length){fbFlush();return}
+ if(FB.ult)mesclar(FB.ult);
+ cs(nPend()?'☁ '+nPend()+' alteração(ões) recusada(s) pelo servidor':'☁ Sincronizado');
+}
+/* estado exibido = nuvem + alterações ainda na fila (a fila sempre vence) */
+function mesclar(sn){
+ const out=[];
+ sn.docs.forEach(d=>{if(!OB[d.id])out.push(norm({...d.data(),id:d.id}))});
+ Object.keys(OB).forEach(id=>{if(OB[id].op=='set')out.push(OB[id].rec)});
+ const chave=a=>JSON.stringify(a.slice().sort((x,y)=>x.id<y.id?-1:x.id>y.id?1:0));
+ if(chave(out)!==chave(D)){D=out;salvarLocal();render()}
+}
+/* migração única do formato antigo (documento controleFerias/dados) para um documento por colaborador */
+async function migrar(){
+ cs('☁ Atualizando o formato dos dados na nuvem (acontece uma única vez)…');
+ let fonte=null;
+ if(!legPend()){
+  const o=await FS().doc('controleFerias/dados').get();
+  if(o.exists&&Array.isArray(o.data().colaboradores))fonte=o.data().colaboradores;
+ }
+ if(!fonte)fonte=D;
+ const recs=idsUnicos(fonte.map(norm));
+ for(let i=0;i<recs.length;i+=400){
+  const b=FS().batch();
+  recs.slice(i,i+400).forEach(r=>b.set(colC().doc(r.id),campos(r)));
+  await b.commit();
+ }
+ await FS().doc('config/migracao').set({em:Date.now(),por:(FB.user&&FB.user.email)||'',total:recs.length});
+ try{localStorage.removeItem(LEGK)}catch(e){}
+ toast('Dados migrados: '+recs.length+' colaboradores');
+}
+async function preparar(sn){
+ if(FB.prep)return;FB.prep=true;let tentar=false;
+ try{
+  const m=await FS().doc('config/migracao').get();
+  if(!m.exists){
+   if(FB.role=='admin'){await migrar()}
+   else{cs('☁ Aguardando o administrador concluir a atualização na nuvem');FB.prep=false;return}
+  }else if(legPend()){
+   const c=new Map(sn.docs.map(d=>[d.id,norm({...d.data(),id:d.id})]));
+   D.forEach(r=>{const x=c.get(r.id);if(!x||JSON.stringify(x)!==JSON.stringify(r))OB[r.id]={op:'set',rec:r,novo:!x,ts:Date.now()}});
+   obSave();try{localStorage.removeItem(LEGK)}catch(e){}
+  }
+  FB.ready=true;mesclar(FB.ult||sn);fbFlush();
+ }catch(e){tentar=true;cs('☁ Não foi possível conferir a nuvem — tentando de novo')}
+ FB.prep=false;
+ if(tentar)setTimeout(()=>{if(!FB.ready&&FB.ult)preparar(FB.ult)},8000);
 }
 function fbStart(u){
- FB.user=u;FB.ready=false;FB.ref=firebase.firestore().doc('controleFerias/dados');
+ FB.user=u;FB.ready=false;FB.ult=null;FB.neg=new Set();FB.semLote=false;FB.prep=false;
  if(FB.un)FB.un();
  cs('☁ Conectando…');
- FB.un=FB.ref.onSnapshot({includeMetadataChanges:true},sn=>{
-  if(sn.metadata.hasPendingWrites||FB.busy)return;
+ FB.un=colC().onSnapshot({includeMetadataChanges:true},sn=>{
   if(sn.metadata.fromCache){if(!FB.ready)cs('☁ Sem internet — usando os dados salvos neste aparelho');return}
-  if(!sn.exists){FB.ready=true;if(D.length)fbPush();else cs('☁ Nuvem vazia');return}
-  const a=sn.data().colaboradores;
-  if(!Array.isArray(a))return;
-  FB.ready=true;
-  const igual=JSON.stringify(a)===JSON.stringify(D);
-  if(pend()&&!igual){toast('Enviando alterações feitas sem internet');fbPush();return}
-  if(pend()&&igual)setPend(false);
-  if(!igual){D=a;try{localStorage.setItem(KEY,JSON.stringify(D))}catch(e){}render()}
-  cs('☁ Sincronizado');
+  FB.ult=sn;
+  if(FB.ready){mesclar(sn);if(!FB.fl)cs(nPend()?'☁ '+nPend()+' alteração(ões) aguardando envio':'☁ Sincronizado');return}
+  preparar(sn);
  },e=>{FB.ready=false;cs('☁ Sem acesso');toast(e&&e.code=='permission-denied'?'Seu usuário não tem permissão para ver os dados':'Falha na sincronização')});
 }
-window.addEventListener('online',()=>{if(!FB.user)return;if(FB.ready&&pend())fbPush();else cs('☁ Reconectando…')});
+window.addEventListener('online',()=>{if(!FB.user)return;if(FB.ready)fbFlush();else cs('☁ Reconectando…')});
 window.addEventListener('offline',()=>{if(FB.user)cs('☁ Sem internet — alterações ficam salvas neste aparelho')});
 function loginMostrar(msg){
  let o=$('#lg');
@@ -694,18 +791,19 @@ function loginMostrar(msg){
 const loginOcultar=()=>{const o=$('#lg');if(o)o.hidden=true};
 /* ---------- Acesso: primeiro usuário = administrador; demais precisam ser liberados ---------- */
 const FS=()=>firebase.firestore(),colU=()=>FS().collection('usuarios'),colA=()=>FS().collection('acessos');
-Object.assign(FB,{on:false,role:'',unU:null,unA:[],users:[],pend:[]});
+Object.assign(FB,{on:false,role:'',unU:null,unA:[],users:[],pend:[],lix:[],neg:new Set()});
 function gate(h){let o=$('#gt');if(!o){o=document.createElement('div');o.id='gt';document.body.appendChild(o)}o.innerHTML=h;o.hidden=false}
 const gateOff=()=>{const o=$('#gt');if(o)o.hidden=true};
 const blocoGate=(t,x,b)=>`<div class="card"><h2 style="margin:0">${t}</h2><p class="note" style="margin:0">${x}</p>${b=='pedir'?'<button class="btn p" data-gt="pedir" style="justify-content:center">Solicitar acesso</button>':''}${b?'<button class="btn" data-gt="sair" style="justify-content:center">Sair</button>':''}</div>`;
 function sairDados(){
- FB.on=false;FB.ready=false;FB.role='';if(FB.un){FB.un();FB.un=null}
+ FB.on=false;FB.ready=false;FB.role='';FB.ult=null;FB.prep=false;if(FB.un){FB.un();FB.un=null}
  admStop();$('#tab-adm').hidden=true;if(S.view=='adm')view('dash');cs('');
 }
 function entrar(u,adm){
  gateOff();loginOcultar();
+ FB.role=adm?'admin':'user';
  if(!FB.on){FB.on=true;fbStart(u)}
- FB.role=adm?'admin':'user';if(S.view=='list')list();
+ if(S.view=='list')list();
  $('#tab-adm').hidden=!adm;
  if(adm)admStart();else{admStop();if(S.view=='adm')view('dash')}
 }
@@ -746,21 +844,23 @@ function acessoStart(u){
 }
 function admStart(){
  if(FB.unA.length)return;
- FB.unA=[colU().onSnapshot(q=>{FB.users=q.docs.map(d=>({id:d.id,...d.data()}));admRef()},()=>{}),colA().onSnapshot(q=>{FB.pend=q.docs.map(d=>({id:d.id,...d.data()}));admRef()},()=>{})];
+ FB.unA=[colU().onSnapshot(q=>{FB.users=q.docs.map(d=>({id:d.id,...d.data()}));admRef()},()=>{}),colA().onSnapshot(q=>{FB.pend=q.docs.map(d=>({id:d.id,...d.data()}));admRef()},()=>{}),colL().onSnapshot(q=>{FB.lix=q.docs.map(d=>({lid:d.id,...d.data()}));admRef()},()=>{})];
 }
-function admStop(){FB.unA.forEach(f=>f());FB.unA=[];FB.users=[];FB.pend=[];const t=$('#tab-adm');if(t)t.textContent='Administrador'}
+function admStop(){FB.unA.forEach(f=>f());FB.unA=[];FB.users=[];FB.pend=[];FB.lix=[];const t=$('#tab-adm');if(t)t.textContent='Administrador'}
 function admRef(){const n=FB.pend.length;$('#tab-adm').textContent='Administrador'+(n?' ('+n+')':'');if(S.view=='adm')adm()}
 function adm(){
  const eu=FB.user&&FB.user.uid,dt=t=>t?new Date(t).toLocaleDateString('pt-BR'):'';
  const pend=FB.pend.slice().sort((a,b)=>(a.em||0)-(b.em||0)),us=FB.users.slice().sort((a,b)=>(a.email||'').localeCompare(b.email||''));
  $('#adm').innerHTML=`<div class="card"><h2>Solicitações de acesso</h2>${pend.length?pend.map(p=>`<div class="ur"><span><b>${esc(p.email)}</b><small>Pedido em ${dt(p.em)}</small></span><div class="ub"><button class="btn p" data-ad="liberar" data-u="${esc(p.id)}">Liberar</button><button class="btn" data-ad="recusar" data-u="${esc(p.id)}">Recusar</button></div></div>`).join(''):'<div class="em">Nenhuma solicitação pendente.</div>'}<p class="note">Para dar acesso a alguém: a pessoa abre o sistema, toca em “Criar conta” e depois em “Solicitar acesso”. O pedido aparece aqui.</p></div>
- <div class="card" style="margin-top:20px"><h2>Usuários</h2>${us.map(u=>{const eh=u.id==eu,ad=u.role=='admin';return `<div class="ur"><span><b>${esc(u.email)}${eh?' (você)':''}</b><small>${ad?'Administrador':'Usuário'} · ${u.ativo?'Ativo':'Bloqueado'}</small></span>${eh?'':`<div class="ub"><button class="btn" data-ad="${ad?'tirar':'admin'}" data-u="${esc(u.id)}">${ad?'Remover admin':'Tornar admin'}</button><button class="btn ${u.ativo?'d':''}" data-ad="${u.ativo?'bloquear':'reativar'}" data-u="${esc(u.id)}">${u.ativo?'Bloquear':'Reativar'}</button></div>`}</div>`}).join('')}</div>`;
+ <div class="card" style="margin-top:20px"><h2>Usuários</h2>${us.map(u=>{const eh=u.id==eu,ad=u.role=='admin';return `<div class="ur"><span><b>${esc(u.email)}${eh?' (você)':''}</b><small>${ad?'Administrador':'Usuário'} · ${u.ativo?'Ativo':'Bloqueado'}</small></span>${eh?'':`<div class="ub"><button class="btn" data-ad="${ad?'tirar':'admin'}" data-u="${esc(u.id)}">${ad?'Remover admin':'Tornar admin'}</button><button class="btn ${u.ativo?'d':''}" data-ad="${u.ativo?'bloquear':'reativar'}" data-u="${esc(u.id)}">${u.ativo?'Bloquear':'Reativar'}</button></div>`}</div>`}).join('')}</div>
+ <div class="card" style="margin-top:20px"><h2>Excluídos recentemente</h2>${FB.lix.slice().sort((a,b)=>(b.excluidoEm||0)-(a.excluidoEm||0)).slice(0,30).map(x=>`<div class="ur"><span><b>${esc(x.nome)}</b><small>RE ${esc(x.re)} · excluído em ${dt(x.excluidoEm)}${x.excluidoPor?' por '+esc(x.excluidoPor):''}</small></span><div class="ub"><button class="btn" data-ad="restaurar" data-u="${esc(x.lid)}">Restaurar</button></div></div>`).join('')||'<div class="em">Nenhum colaborador excluído.</div>'}</div>`;
 }
 $('#adm').addEventListener('click',async e=>{
  const b=e.target.closest('[data-ad]');if(!b||FB.role!='admin')return;
  const id=b.dataset.u,a=b.dataset.ad,x=FB.pend.find(z=>z.id==id)||FB.users.find(z=>z.id==id)||{},em=x.email||'';
  try{
-  if(a=='liberar'){const w=FS().batch();w.set(colU().doc(id),{email:em,role:'user',ativo:true,criadoEm:Date.now(),liberadoPor:FB.user.email||''});w.delete(colA().doc(id));await w.commit();toast('Acesso liberado')}
+  if(a=='restaurar'){await restaurarExcluido(id)}
+  else if(a=='liberar'){const w=FS().batch();w.set(colU().doc(id),{email:em,role:'user',ativo:true,criadoEm:Date.now(),liberadoPor:FB.user.email||''});w.delete(colA().doc(id));await w.commit();toast('Acesso liberado')}
   else if(a=='recusar'){if(!await askBox('Recusar solicitação','Recusar o pedido de <b>'+esc(em)+'</b>?',{ok:'Recusar',perigo:true}))return;await colA().doc(id).delete();toast('Solicitação recusada')}
   else if(a=='admin'){if(!await askBox('Tornar administrador','Dar a <b>'+esc(em)+'</b> a permissão de administrador? Ele poderá liberar acessos e excluir colaboradores.',{ok:'Tornar admin'}))return;await colU().doc(id).update({role:'admin'});toast('Agora é administrador')}
   else if(a=='tirar'){if(!await askBox('Remover administrador','Remover <b>'+esc(em)+'</b> dos administradores? Ele continua com acesso comum.',{ok:'Remover',perigo:true}))return;await colU().doc(id).update({role:'user'});toast('Administrador removido')}
@@ -788,12 +888,11 @@ async function fbInit(){
  }catch(e){loginMostrar('Não foi possível carregar o Firebase. Verifique a internet.')}
 }
 $('#bo').onclick=async()=>{
- if(pend()&&!await askBox('Sair sem enviar?','Há alterações que ainda <b>não foram enviadas</b> para a nuvem. Se sair agora, elas serão perdidas.',{ok:'Sair mesmo assim',perigo:true,cancel:'Voltar'}))return;
+ if(nPend()&&!await askBox('Sair sem enviar?','Há <b>'+nPend()+'</b> alteração(ões) que ainda não foram enviadas para a nuvem. Se sair agora, elas serão perdidas.',{ok:'Sair mesmo assim',perigo:true,cancel:'Voltar'}))return;
  try{await firebase.auth().signOut()}catch(e){}
- try{localStorage.removeItem(KEY)}catch(e){}setPend(false);
- D=SEED.map(mk);render();
+ try{localStorage.removeItem(KEY)}catch(e){}OB={};obSave();try{localStorage.removeItem(LEGK)}catch(e){}
+ D=idsUnicos(SEED.map(mk).map(norm));render();
 };
-if(!SEED.length)$('#br').hidden=true;
 load();render();fbInit();
 </script>
 
