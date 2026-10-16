@@ -31,6 +31,7 @@ header small{display:block;opacity:.85;font-size:13px;margin-top:4px}
 .bar .btn.p{background:#fff;color:#1b365d;border-color:#fff}
 nav{display:flex;gap:6px;background:var(--sf);border-bottom:1px solid var(--ln);padding-block:0}
 nav button{flex:0 0 auto;background:none;border:0;border-bottom:4px solid transparent;padding:13px 16px;min-height:48px;cursor:pointer;color:var(--mu);font-weight:700;font-size:15px}
+nav{overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch;max-width:100%}nav::-webkit-scrollbar{display:none}nav button{white-space:nowrap}
 nav button[aria-selected=true]{color:var(--pri);border-color:var(--pri)}
 main{max-width:1360px;margin:0 auto;padding-block:18px 28px}
 /* blocos 3D */
@@ -115,7 +116,9 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
  h1{font-size:24px}
  .bar{display:grid;grid-template-columns:1fr 1fr;width:100%;gap:10px}
  .bar .btn.p{grid-column:1/-1}
- nav button{flex:1;text-align:center}
+ nav{gap:0}
+ nav button{flex:1 0 auto;text-align:center;padding:13px 12px;font-size:14px}
+ header,nav,main{max-width:100vw}
  .dd{flex:1 1 calc(50% - 10px)}
  .tb .btn{flex:1 1 calc(50% - 10px)}
  #ct{flex:1 1 100%}
@@ -239,7 +242,7 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const mk=a=>Object.fromEntries(KEYS.map((k,i)=>[k,a[i]]));
 function load(){try{const j=localStorage.getItem(KEY);if(j){D=JSON.parse(j);return}}catch(e){}D=SEED.map(mk)}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(D))}catch(e){}if(typeof fbPush=='function')fbPush()}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(D))}catch(e){toast('Atenção: não foi possível salvar neste aparelho')}if(typeof fbPush=='function')fbPush(true)}
 function pref(){try{localStorage.setItem(PREF,JSON.stringify({mask:S.mask,theme:document.documentElement.dataset.theme||''}))}catch(e){}}
 const P=iso=>{const a=(iso||'').split('-');return a.length==3?new Date(+a[0],a[1]-1,+a[2]):null};
 const fd=d=>d?String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear():'';
@@ -348,7 +351,7 @@ function list(){
 }
 
 /* ---------- Navegação e filtros interligados ---------- */
-function view(v){S.view=v;$('#dash').hidden=v!='dash';$('#list').hidden=v!='list';$('#exp').hidden=v!='exp';$('#adm').hidden=v!='adm';document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-selected',b.dataset.v==v));render()}
+function view(v){S.view=v;$('#dash').hidden=v!='dash';$('#list').hidden=v!='list';$('#exp').hidden=v!='exp';$('#adm').hidden=v!='adm';document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-selected',b.dataset.v==v));const at=document.querySelector('nav button[aria-selected=true]');if(at&&at.scrollIntoView)at.scrollIntoView({inline:'nearest',block:'nearest'});render()}
 function render(){
  const t=new Date();$('#sub').textContent=`Hoje: ${fd(t)} · ${D.length} colaboradores`;
  S.view=='dash'?dash():S.view=='exp'?exp():S.view=='adm'?adm():list();
@@ -572,28 +575,46 @@ const FB={ready:false,user:null,ref:null,un:null,t:0};
 const cs=t=>{const e=$('#cs');if(e)e.textContent=t};
 const lerScript=u=>new Promise((ok,no)=>{const e=document.createElement('script');e.src=u;e.onload=ok;e.onerror=()=>no(new Error('script'));document.head.appendChild(e)});
 const ERR={'auth/invalid-credential':'E-mail ou senha incorretos.','auth/wrong-password':'E-mail ou senha incorretos.','auth/user-not-found':'E-mail ou senha incorretos.','auth/invalid-email':'E-mail inválido.','auth/user-disabled':'Usuário desativado.','auth/too-many-requests':'Muitas tentativas. Aguarde um pouco.','auth/email-already-in-use':'Este e-mail já tem conta. Toque em Entrar.','auth/weak-password':'Senha fraca: use pelo menos 6 caracteres.','auth/network-request-failed':'Sem conexão com a internet.','auth/operation-not-supported-in-this-environment':'Abra o sistema pelo endereço https hospedado.'};
-function fbPush(){
- if(!FB_ON||!FB.ready||!FB.user||!D.length)return;
+const DK='controleFerias.pendente';
+const pend=()=>{try{return localStorage.getItem(DK)==='1'}catch(e){return false}};
+const setPend=v=>{try{if(v)localStorage.setItem(DK,'1');else localStorage.removeItem(DK)}catch(e){}};
+function fbPush(mudou){
+ if(!FB_ON)return;
+ if(mudou){FB.v=(FB.v||0)+1;setPend(true)}
+ if(!FB.ready||!FB.user||!D.length){if(mudou&&FB.user)cs('☁ Salvo neste aparelho — envia quando a conexão voltar');return}
  clearTimeout(FB.t);
+ const v=FB.v||0;
  FB.t=setTimeout(async()=>{
-  try{cs('☁ Salvando…');await FB.ref.set({colaboradores:JSON.parse(JSON.stringify(D)),atualizado:Date.now(),por:FB.user.email||''});cs('☁ Sincronizado')}
-  catch(e){cs('☁ Não enviado (sem conexão ou permissão)');toast('Não foi possível sincronizar')}
+  FB.busy=true;
+  try{
+   cs(navigator.onLine?'☁ Salvando…':'☁ Sem internet — salvo neste aparelho, envia quando voltar');
+   await FB.ref.set({colaboradores:JSON.parse(JSON.stringify(D)),atualizado:Date.now(),por:FB.user.email||''});
+   if(v===(FB.v||0))setPend(false);
+   cs('☁ Sincronizado');
+  }catch(e){cs('☁ Não enviado (sem conexão ou permissão) — salvo neste aparelho');toast('Não foi possível sincronizar agora')}
+  FB.busy=false;
  },600);
 }
 function fbStart(u){
  FB.user=u;FB.ready=false;FB.ref=firebase.firestore().doc('controleFerias/dados');
  if(FB.un)FB.un();
  cs('☁ Conectando…');
- FB.un=FB.ref.onSnapshot(sn=>{
-  if(sn.metadata.hasPendingWrites)return;
+ FB.un=FB.ref.onSnapshot({includeMetadataChanges:true},sn=>{
+  if(sn.metadata.hasPendingWrites||FB.busy)return;
+  if(sn.metadata.fromCache){if(!FB.ready)cs('☁ Sem internet — usando os dados salvos neste aparelho');return}
   if(!sn.exists){FB.ready=true;if(D.length)fbPush();else cs('☁ Nuvem vazia');return}
   const a=sn.data().colaboradores;
   if(!Array.isArray(a))return;
   FB.ready=true;
-  if(JSON.stringify(a)!==JSON.stringify(D)){D=a;try{localStorage.setItem(KEY,JSON.stringify(D))}catch(e){}render()}
+  const igual=JSON.stringify(a)===JSON.stringify(D);
+  if(pend()&&!igual){toast('Enviando alterações feitas sem internet');fbPush();return}
+  if(pend()&&igual)setPend(false);
+  if(!igual){D=a;try{localStorage.setItem(KEY,JSON.stringify(D))}catch(e){}render()}
   cs('☁ Sincronizado');
  },e=>{FB.ready=false;cs('☁ Sem acesso');toast(e&&e.code=='permission-denied'?'Seu usuário não tem permissão para ver os dados':'Falha na sincronização')});
 }
+window.addEventListener('online',()=>{if(!FB.user)return;if(FB.ready&&pend())fbPush();else cs('☁ Reconectando…')});
+window.addEventListener('offline',()=>{if(FB.user)cs('☁ Sem internet — alterações ficam salvas neste aparelho')});
 function loginMostrar(msg){
  let o=$('#lg');
  if(!o){
@@ -720,8 +741,9 @@ async function fbInit(){
  }catch(e){loginMostrar('Não foi possível carregar o Firebase. Verifique a internet.')}
 }
 $('#bo').onclick=async()=>{
+ if(pend()&&!confirm('Há alterações que ainda NÃO foram enviadas para a nuvem. Se sair agora, elas serão perdidas. Sair mesmo assim?'))return;
  try{await firebase.auth().signOut()}catch(e){}
- try{localStorage.removeItem(KEY)}catch(e){}
+ try{localStorage.removeItem(KEY)}catch(e){}setPend(false);
  D=SEED.map(mk);render();
 };
 if(!SEED.length)$('#br').hidden=true;
