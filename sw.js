@@ -1,9 +1,9 @@
 /* Service Worker · Controle de Férias. Mude VERSION a cada nova publicação. */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL = 'ferias-shell-' + VERSION;
 const LIBS = 'ferias-libs-v1';
 const SHELL_FILES = ['./', './index.html', './manifest.webmanifest',
-  './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png'];
+  './icon-192.png', './icon-512.png', './icon-maskable-512.png', './apple-touch-icon.png'];
 const LIB_HOSTS = ['cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com', 'www.gstatic.com'];
 
 self.addEventListener('install', e => {
